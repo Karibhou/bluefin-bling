@@ -41,7 +41,7 @@ class Toggle {
 function makeContext(options) {
     const folders = options.folders ?? [
         {id: 'documents', label: 'Documents', path: '/home/test/Documentos', paused: false},
-        {id: 'downloads', label: 'Downloads', path: '/home/test/Descargas', paused: true},
+        {id: 'music', label: 'Music', path: '/home/test/Música', paused: true},
         {id: 'pictures', label: 'Pictures', path: '/home/test/Images & Photos', paused: true},
     ];
     const ctx = {

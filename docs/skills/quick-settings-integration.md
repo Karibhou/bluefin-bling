@@ -77,7 +77,6 @@ uses this pattern so its menu control remains available without an extra panel i
 See [upstream registration](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/main/js/ui/panel.js)
 and [SystemIndicator](https://gitlab.gnome.org/GNOME/gnome-shell/-/blob/main/js/ui/quickSettings.js).
 
-
 ---
 
 ## Desktop Notifications & HIG Voice

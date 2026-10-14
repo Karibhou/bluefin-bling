@@ -129,6 +129,7 @@ export var ServiceIndicator = GObject.registerClass(
 			}
 		}
 
+
 		_validatedServiceName() {
 			const name = this._settings.get_string('service-name')
 			if (/^[a-zA-Z0-9_][a-zA-Z0-9_.:@-]*\.service$/.test(name))

@@ -362,13 +362,10 @@ function prepare(request) {
         ...(request.extraPaths ?? metadata.extraPaths).map(absolutePath)])];
     const definitions = [
         ['documents', 'Documents', 'DOCUMENTS'],
-        ['desktop', 'Desktop', 'DESKTOP'],
-        ['downloads', 'Downloads', 'DOWNLOAD'],
         ['music', 'Music', 'MUSIC'],
         ['pictures', 'Pictures', 'PICTURES'],
         ['videos', 'Videos', 'VIDEOS'],
         ['templates', 'Templates', 'TEMPLATES'],
-        ['public-share', 'Public', 'PUBLICSHARE'],
     ];
     const folders = [];
     const mounts = new Map();

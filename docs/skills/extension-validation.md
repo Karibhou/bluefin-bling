@@ -1,7 +1,7 @@
 ---
 name: extension-validation
-version: "1.1"
-last_updated: "2026-09-18"
+version: "1.2"
+last_updated: "2026-10-02"
 id: extension-validation
 one_line_purpose: Validate extensions and extend the discovery-based test suite.
 entry_point: docs/skills/extension-validation.md
@@ -278,6 +278,41 @@ folder inspection additionally invokes `/usr/bin/podman` with the template's
 pinned image and a read-only state mount. Podman/image availability is not a
 dependency skip guard. The suite itself does not start or install a native unit.
 
+### Power-status behaviour and release proof
+
+`tests/test_power_status_color.py` drives the unchanged production module through
+`power_status_color_harness.mjs`. Its consumer-visible contracts include:
+
+- Uptime is not overdue at **2,591,999 seconds**, and is overdue at **2,592,000**.
+  Unreadable, invalid, or failed uptime reads do not trigger red.
+- `/run/reboot-required`, `/var/run/reboot-required`,
+  `/run/composefs/staged-deployment`, and `/run/ostree/staged-deployment` are pending
+  restart markers. Markers short-circuit bootc; otherwise permitted
+  `bootc status --format=json` with non-null `status.staged` supplies yellow.
+- Red overrides yellow; classes are mutually exclusive and mirrored on the
+  button's child. Recovery clears old classes, including on replaced actors.
+- Marker creation/replacement/removal refreshes state. A failed monitor preserves
+  other monitors and the five-minute polling fallback; disable releases monitors,
+  timer, cancellable and styles. Cancellation during a marker query prevents late
+  bootc launches and style writes. Generation guards retire stale checks across
+  disable/enable, and queued checks must finish before state is asserted.
+
+After changing this path, run the **complete affected module**, then the **full
+discovery suite** (a selected boundary test alone is not sufficient):
+
+```bash
+python3 -m unittest discover -s tests -t tests -v -p 'test_power_status_color.py'
+python3 -m unittest discover -s tests -t tests -v
+# Re-derive contracts and harness scenario names before changing this guide:
+grep -n 'def test_' tests/test_power_status_color.py
+grep -n 'REBOOT_FLAG_FILES\|_statusQueued\|is_cancelled\|generation' extensions/power-status-color/extension.js
+```
+
+These runs prove logic under stubs, **not** the installed build, permissions,
+actor styling, or visible pixels. Confirm the rendered Quick Settings power
+button on an installed build before claiming a visual fix, and keep thresholds
+and system flags restored afterwards.
+
 ## Extending the suite
 
 Add assertions to the existing test classes rather than new hardcoded checks.
@@ -291,10 +326,26 @@ If a source starts reaching settings through some other shape, teach that helper
 the new shape — otherwise the unknown-key test goes quietly blind.
 
 `tests/test_compat_scripts.py`
-- covers `scripts/evaluate_aggregate_compat.py` and `scripts/file_compat_issue.py`
+- covers `scripts/evaluate_aggregate_compat.py`, `scripts/file_compat_issue.py` and
+  `scripts/resolve_gnome_channels.py`
 - enforces fail-closed evaluation: fails on missing channel artifacts, ambiguous duplicate artifacts,
   or infrastructure errors
+- enforces the aggregate result contract: a `fail` status (with or without a known phase), an
+  unknown status, a passing result that carries a phase, a missing/extra/duplicate UUID, a wrong
+  `schema_version` or `channel`, and malformed JSON each fail the channel, and one failing channel
+  fails the whole run
 - enforces issue reporting: fails on empty/missing artifacts and reports run infrastructure errors
+- enforces the issue body contract: `sanitize_text` strips NULs, neutralizes ``` fences and
+  truncates at `MAX_DIAGNOSTICS_LEN`; an out-of-contract UUID, phase or status exits 1 without
+  reaching `gh`; an identical open issue suppresses a duplicate
+- enforces the channel matrix contract: every `image_digest` is pinned by `@sha256:`, the
+  nightly entry carries no `target_major`, and a feed or registry lookup failure exits 1
+
+`scripts/evaluate_aggregate_compat.py` and `scripts/file_compat_issue.py` have no workflow
+caller, so `tests/test_compat_scripts.py` is their only executed coverage. `main()` for
+`file_compat_issue.py` and `resolve_gnome_channels.py` is driven in-process with `run_gh_cmd`
+and the network fetch stubbed; use the module-level `silenced()` helper so a script's own
+`print` output does not bury a real failure in the CI log.
 
 ## Red Flags
 

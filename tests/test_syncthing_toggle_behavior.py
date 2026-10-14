@@ -41,9 +41,9 @@ class SyncthingApiControlTests(unittest.TestCase):
     def test_first_start_configures_local_only_folders_despite_defaults_peers(self):
         result = run_scenario("initial")
         folders = {folder["id"]: folder for folder in result["configured"]}
-        self.assertEqual(set(folders), {"documents", "downloads", "pictures"})
+        self.assertEqual(set(folders), {"documents", "music", "pictures"})
         self.assertFalse(folders["documents"]["paused"])
-        self.assertTrue(folders["downloads"]["paused"])
+        self.assertTrue(folders["music"]["paused"])
         self.assertTrue(folders["pictures"]["paused"])
         self.assertEqual(folders["documents"]["path"], "/home/test/Documentos")
         self.assertEqual(folders["pictures"]["path"], "/home/test/Images & Photos")
@@ -85,7 +85,7 @@ class SyncthingApiControlTests(unittest.TestCase):
         actual = {folder["id"]: folder for folder in result["configured"]}
         for folder in existing:
             self.assertEqual(actual[folder["id"]], folder)
-        self.assertEqual([folder["id"] for folder in posted_folders(result)], ["downloads"])
+        self.assertEqual([folder["id"] for folder in posted_folders(result)], ["music"])
         self.assertEqual(result["devices"], result["originalDevices"])
         self.assertFalse(any(command.get("verb") == "stop" for command in result["commands"]))
         self.assertEqual(len(result["notifications"]), 1)
@@ -266,9 +266,9 @@ class SyncthingApiControlTests(unittest.TestCase):
         self.assertTrue(result["checked"])
 
     def test_missing_documents_does_not_create_a_fake_directory_or_definition(self):
-        folders = [{"id": "downloads", "label": "Downloads", "path": "/mnt/My Downloads", "paused": True}]
+        folders = [{"id": "music", "label": "Music", "path": "/mnt/My Music", "paused": True}]
         result = run_scenario("initial", folders=folders)
-        self.assertEqual([folder["id"] for folder in result["configured"]], ["downloads"])
+        self.assertEqual([folder["id"] for folder in result["configured"]], ["music"])
         self.assertTrue(result["configured"][0]["paused"])
         self.assertTrue(result["provisioned"])
 

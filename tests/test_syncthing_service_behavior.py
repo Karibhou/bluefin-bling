@@ -87,7 +87,7 @@ class SyncthingServiceBehavior(unittest.TestCase):
         self.set_directories({})
 
     def set_directories(self, paths):
-        kinds = ("DOCUMENTS", "DESKTOP", "DOWNLOAD", "MUSIC", "PICTURES", "VIDEOS", "TEMPLATES", "PUBLICSHARE")
+        kinds = ("DOCUMENTS", "MUSIC", "PICTURES", "VIDEOS", "TEMPLATES")
         lines = []
         for kind in kinds:
             value = str(paths.get(kind, self.home)).replace("\\", "\\\\").replace('"', '\\"')
@@ -112,10 +112,10 @@ class SyncthingServiceBehavior(unittest.TestCase):
 
     def test_localized_paths_permissions_and_persistent_identity(self):
         documents = self.home / 'Mes documents % & <été> "photos"'
-        downloads = self.home / "Téléchargements"
+        music = self.home / "Musique"
         documents.mkdir()
-        downloads.mkdir()
-        self.set_directories({"DOCUMENTS": documents, "DOWNLOAD": downloads, "MUSIC": downloads})
+        music.mkdir()
+        self.set_directories({"DOCUMENTS": documents, "MUSIC": music, "PICTURES": music})
         # Seed managed state before preserving its engine-owned identity files.
         self.invoke()
         identity = {"config.xml": b"<configuration>native identity</configuration>\n",
@@ -129,7 +129,7 @@ class SyncthingServiceBehavior(unittest.TestCase):
         self.assertFalse(response["provisioned"])
         self.assertEqual(response["folders"], [
             {"id": "documents", "label": "Documents", "path": str(documents), "paused": False},
-            {"id": "downloads", "label": "Downloads", "path": str(downloads), "paused": True},
+            {"id": "music", "label": "Music", "path": str(music), "paused": True},
         ])
         credentials = Path(response["envFile"]).read_text()
         key = credentials.splitlines()[0].split("=", 1)[1]
@@ -146,7 +146,7 @@ class SyncthingServiceBehavior(unittest.TestCase):
     def test_missing_disabled_and_home_aliases_do_not_create_defaults(self):
         alias = self.home / "home-alias"
         alias.symlink_to(self.home, target_is_directory=True)
-        self.set_directories({"DOCUMENTS": self.home / "missing docs", "DOWNLOAD": alias})
+        self.set_directories({"DOCUMENTS": self.home / "missing docs", "MUSIC": alias})
         response = self.invoke()
         self.assertFalse(response["documentsAvailable"])
         self.assertEqual(response["folders"], [])
