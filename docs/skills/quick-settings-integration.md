@@ -68,6 +68,8 @@ export default class IndicatorExtension extends Extension {
 }
 ```
 
+For a menu-only toggle with no top-bar panel icon, omit `this._addIndicator()`. `SystemIndicator` starts with `visible: false` and `addExternalIndicator()` registers `quickSettingsItems` independently of any panel icon child.
+
 ---
 
 ## Desktop Notifications & HIG Voice

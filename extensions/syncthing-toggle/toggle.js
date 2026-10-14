@@ -221,8 +221,6 @@ export var ServiceIndicator = GObject.registerClass(
 				extensionObject.path + '/icons/syncthing-symbolic.svg'
 			const syncthingIcon = Gio.icon_new_for_string(iconName)
 
-			this._indicator = this._addIndicator()
-			this._indicator.gicon = syncthingIcon
 			this._toggle = new ServiceToggle(extensionObject, syncthingIcon)
 			this.quickSettingsItems.push(this._toggle)
 
@@ -619,7 +617,6 @@ export var ServiceIndicator = GObject.registerClass(
 			// the widgets are gone by then.
 			if (this._destroyed)
 				return
-			this._indicator.visible = isActive
 			let status = isActive ? 'Running' : 'Stopped'
 			this._toggle.set({ checked: isActive, subtitle: status })
 			this._toggle.webGuiItem.setSensitive(isActive)
