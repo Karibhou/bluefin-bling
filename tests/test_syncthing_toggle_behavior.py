@@ -132,6 +132,7 @@ class TestSyncthingToggleConstruction(unittest.TestCase):
         result = run_scenario("toggle-construction")
         self.assertEqual(result["quickSettingsItemCount"], 1)
         self.assertTrue(result["quickSettingsItemIsToggle"])
+        self.assertEqual(result["panelIndicatorCount"], 0)
 
     def test_web_gui_item_is_the_menu_entry_updatestatus_desensitises(self):
         # If webGuiItem ever stops being the item actually in the menu, the
@@ -168,9 +169,9 @@ class TestSyncthingToggleIconResolution(unittest.TestCase):
         result = run_scenario("icon-resolution", iconName="  my-icon-symbolic  ")
         self.assertEqual(result["iconStrings"], ["my-icon-symbolic"])
 
-    def test_indicator_and_toggle_share_one_icon(self):
-        result = run_scenario("icon-resolution")
-        self.assertEqual(result["indicatorGicon"], result["toggleGicon"])
+    def test_toggle_uses_resolved_icon(self):
+        result = run_scenario("icon-resolution", iconName="  my-icon-symbolic  ")
+        self.assertEqual(result["toggleGicon"], "my-icon-symbolic")
 
 
 @unittest.skipIf(NODE is None, "node is not installed; cannot execute toggle.js")
@@ -198,15 +199,13 @@ class TestSyncthingToggleWebGui(unittest.TestCase):
 
 @unittest.skipIf(NODE is None, "node is not installed; cannot execute toggle.js")
 class TestSyncthingToggleUpdateStatus(unittest.TestCase):
-    def test_running_service_shows_the_indicator_and_checks_the_toggle(self):
+    def test_running_service_checks_the_toggle(self):
         result = run_scenario("update-status")["active"]
-        self.assertTrue(result["indicatorVisible"])
         self.assertTrue(result["checked"])
         self.assertEqual(result["subtitle"], "Running")
 
-    def test_stopped_service_hides_the_indicator_and_unchecks_the_toggle(self):
+    def test_stopped_service_unchecks_the_toggle(self):
         result = run_scenario("update-status")["inactive"]
-        self.assertFalse(result["indicatorVisible"])
         self.assertFalse(result["checked"])
         self.assertEqual(result["subtitle"], "Stopped")
 
@@ -362,7 +361,7 @@ class TestSyncthingToggleEnable(unittest.TestCase):
         result = run_scenario("enable", unitRunning=True)
         self.assertEqual(
             result["toggle"],
-            {"checked": True, "subtitle": "Running", "indicatorVisible": True},
+            {"checked": True, "subtitle": "Running"},
         )
 
     def test_a_session_that_starts_metered_pauses_the_running_unit(self):
@@ -384,7 +383,7 @@ class TestSyncthingToggleEnable(unittest.TestCase):
         )
         self.assertEqual(
             result["toggle"],
-            {"checked": False, "subtitle": "Stopped", "indicatorVisible": False},
+            {"checked": False, "subtitle": "Stopped"},
         )
         self.assertTrue(result["notifications"], "sharing was paused without saying so")
 
@@ -420,7 +419,7 @@ class TestSyncthingToggleEnable(unittest.TestCase):
         )
         self.assertEqual(
             result["after"],
-            {"checked": False, "subtitle": "Stopped", "indicatorVisible": False},
+            {"checked": False, "subtitle": "Stopped"},
         )
 
 
@@ -509,7 +508,6 @@ class TestSyncthingToggleDisable(unittest.TestCase):
         # with G_IO_ERROR_CANCELLED, after the widgets are gone.
         result = run_scenario("cancellation")
         self.assertEqual(result["subtitleAfter"], result["subtitleBefore"])
-        self.assertFalse(result["indicatorVisible"])
         self.assertEqual(result["notifications"], [])
 
 
@@ -542,7 +540,7 @@ class TestSyncthingToggleMetered(unittest.TestCase):
         result = run_scenario("metered-signal")
         self.assertEqual(
             result["toggle"],
-            {"checked": False, "subtitle": "Stopped", "indicatorVisible": False},
+            {"checked": False, "subtitle": "Stopped"},
         )
 
     def test_the_metered_handler_is_gone_after_disable(self):
@@ -573,7 +571,7 @@ class TestSyncthingToggleMetered(unittest.TestCase):
         result = run_scenario("failed-start")
         self.assertEqual(
             result["toggle"],
-            {"checked": False, "subtitle": "Stopped", "indicatorVisible": False},
+            {"checked": False, "subtitle": "Stopped"},
         )
         self.assertNotIn(
             "enable",
@@ -599,7 +597,6 @@ class TestSyncthingToggleStatusProbe(unittest.TestCase):
 
     def test_active_output_marks_the_service_running(self):
         result = run_scenario("status-probe", statusStdout="active\n")
-        self.assertTrue(result["widgets"]["indicatorVisible"])
         self.assertEqual(result["widgets"]["subtitle"], "Running")
 
     def test_every_non_active_state_marks_the_service_stopped(self):
@@ -608,7 +605,6 @@ class TestSyncthingToggleStatusProbe(unittest.TestCase):
         for state in ("inactive\n", "failed\n", "activating\n", "unknown\n", ""):
             with self.subTest(state=state):
                 result = run_scenario("status-probe", statusStdout=state)
-                self.assertFalse(result["widgets"]["indicatorVisible"])
                 self.assertEqual(result["widgets"]["subtitle"], "Stopped")
 
     def test_the_poll_interval_is_not_a_five_second_spin(self):
@@ -893,7 +889,6 @@ class TestSyncthingToggleSeedingDestroyGuards(unittest.TestCase):
         )
         self.assertEqual(result["after"], result["before"])
         self.assertEqual(result["after"]["subtitle"], "Loading")
-        self.assertFalse(result["after"]["indicatorVisible"])
 
     def test_disable_mid_seed_abandons_the_rest_of_the_click(self):
         # `syncthing generate` is the longest await on the click path. If

@@ -774,7 +774,6 @@ function toggleState(indicator) {
     return {
         checked: indicator._toggle.checked,
         subtitle: indicator._toggle.subtitle,
-        indicatorVisible: indicator._indicator.visible,
     };
 }
 
@@ -798,7 +797,6 @@ const scenarios = {
         const {indicator, log} = await build(options);
         return {
             iconStrings: log.iconStrings,
-            indicatorGicon: indicator._indicator.gicon?.name ?? null,
             toggleGicon: indicator._toggle.gicon?.name ?? null,
         };
     },
@@ -822,6 +820,7 @@ const scenarios = {
             settingsActionVisible: toggle.menu.actions[0]?.visible ?? null,
             quickSettingsItemCount: indicator.quickSettingsItems.length,
             quickSettingsItemIsToggle: indicator.quickSettingsItems[0] === toggle,
+            panelIndicatorCount: indicator._indicators.length,
             webGuiItemIsSectionAction: toggle.webGuiItem === toggle._itemsSection.actions[0],
         };
     },
@@ -982,7 +981,6 @@ const scenarios = {
             cancellableHandlersLeft: cancellable ? cancellable.handlerCount : -1,
             subtitleBefore,
             subtitleAfter: indicator._toggle.subtitle,
-            indicatorVisible: indicator._indicator.visible,
             notifications: log.notifications,
             networkMonitorHandlers: networkMonitor.handlers.size,
         };
