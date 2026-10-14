@@ -194,8 +194,8 @@ collaborators look identical in the UI and count for nothing, and the merge queu
 needs a `merge_group:` trigger in `ci.yml` or nothing can ever merge.
 
 Before approving or merging anything, read
-[`docs/skills/pr-review-and-merge.md`](docs/skills/pr-review-and-merge.md). Never
-admin-merge past a review requirement.
+[`docs/skills/pr-review-and-merge.md`](docs/skills/pr-review-and-merge.md). 
+admin-merge past a review requirement can be done by a maintainer, this is not a strict image repo. 
 
 ### AI Attribution
 
