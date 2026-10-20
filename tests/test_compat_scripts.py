@@ -678,6 +678,17 @@ class TestSanitizeText(unittest.TestCase):
         self.assertNotIn("```", cleaned)
         self.assertIn("\u200b", cleaned)
 
+    def test_neutralizes_backtick_runs_longer_than_a_fence(self):
+        for length in range(3, 9):
+            with self.subTest(length=length):
+                cleaned = self.mod.sanitize_text("`" * length + "\nbreakout\n" + "`" * length)
+                self.assertNotIn("```", cleaned)
+                self.assertEqual(cleaned.replace("\u200b", ""),
+                                 "`" * length + "\nbreakout\n" + "`" * length)
+
+    def test_leaves_short_backtick_runs_alone(self):
+        self.assertEqual(self.mod.sanitize_text("`a` ``b``"), "`a` ``b``")
+
     def test_truncates_beyond_max_len_and_says_so(self):
         cleaned = self.mod.sanitize_text("x" * 50, max_len=10)
         self.assertTrue(cleaned.startswith("x" * 10))

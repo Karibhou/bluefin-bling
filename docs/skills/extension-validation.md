@@ -335,8 +335,9 @@ the new shape — otherwise the unknown-key test goes quietly blind.
   `schema_version` or `channel`, and malformed JSON each fail the channel, and one failing channel
   fails the whole run
 - enforces issue reporting: fails on empty/missing artifacts and reports run infrastructure errors
-- enforces the issue body contract: `sanitize_text` strips NULs, neutralizes ``` fences and
-  truncates at `MAX_DIAGNOSTICS_LEN`; an out-of-contract UUID, phase or status exits 1 without
+- enforces the issue body contract: `sanitize_text` strips NULs, breaks every run of three or more
+  backticks (so no fence of any length can close the diagnostics block) and truncates at
+  `MAX_DIAGNOSTICS_LEN`; an out-of-contract UUID, phase or status exits 1 without
   reaching `gh`; an identical open issue suppresses a duplicate
 - enforces the channel matrix contract: every `image_digest` is pinned by `@sha256:`, the
   nightly entry carries no `target_major`, and a feed or registry lookup failure exits 1
