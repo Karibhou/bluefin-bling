@@ -441,7 +441,11 @@ class SyncthingServiceBehavior(unittest.TestCase):
                 f"{self.state_dir}:/var/syncthing/config:rw",
                 f"{documents}:{documents}:rw", f"{custom}:{custom}:rw",
             })
-            self.assertIn("ghcr.io/syncthing/syncthing:2.1.5", args)
+            template = (HELPER.parent / "syncthing.container.in").read_text()
+            expected_image = re.search(r"^Image=(.+)$", template, re.M).group(1).strip()
+            self.assertRegex(expected_image, r"^ghcr\.io/syncthing/syncthing:[^@]+@sha256:[a-f0-9]{64}$")
+            image = next(value for value in args if value.startswith("ghcr.io/syncthing/syncthing:"))
+            self.assertEqual(image, expected_image)
             security_options = [re.split("[:=]", value, maxsplit=1) for value in options("--security-opt")]
             self.assertIn(["label", "disable"], security_options)
             self.assertNotIn(f"{self.home}:{self.home}:rw", volumes)
