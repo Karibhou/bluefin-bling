@@ -77,7 +77,9 @@ def create_issue(title: str, body: str) -> bool:
 def sanitize_text(text: str, max_len: int = MAX_DIAGNOSTICS_LEN) -> str:
     """Trim string to safe maximum length, strip NUL, and neutralize backtick fences."""
     clean = text.replace("\0", "").strip()
-    clean = clean.replace("```", "`\u200b``")
+    # Break every backtick run, not just the first three: a single replace()
+    # pass leaves "```" behind for runs of four or more, which closes the fence.
+    clean = re.sub(r"`(?=``)", "`\u200b", clean)
     if len(clean) > max_len:
         clean = clean[:max_len] + f"\n... [truncated to {max_len} characters]"
     return clean
