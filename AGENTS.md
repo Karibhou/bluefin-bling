@@ -38,6 +38,11 @@ merge queue land it. See
 ```
 bluefin-bling/
 ├── extensions/
+│   ├── light-style/           # Follows the desktop color-scheme into GNOME Shell's light theme
+│   │   ├── metadata.json
+│   │   ├── extension.js
+│   │   ├── stylesheet.css
+│   │   └── COPYING
 │   ├── power-status-color/    # Quick Settings power button status styling
 │   │   ├── metadata.json
 │   │   ├── extension.js

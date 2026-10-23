@@ -130,6 +130,35 @@ def agents_layout_tree() -> str:
     return _fenced_tree(AGENTS.read_text(encoding="utf-8"), "Repo Layout", "AGENTS.md")
 
 
+_TREE_ENTRY_RE = re.compile(r"^(?P<prefix>[│ ]*)[├└]── (?P<name>[^\s#]+)")
+
+
+def tree_extension_folders(tree: str) -> list[str] | None:
+    """Return the folder names a tree lists directly under ``extensions/``.
+
+    Returns None when the tree has no ``extensions/`` entry at all. Only the
+    immediate children are returned; files nested inside an extension folder
+    are deeper and are skipped.
+    """
+    depth = None
+    folders: list[str] = []
+    for line in tree.splitlines():
+        match = _TREE_ENTRY_RE.match(line)
+        if match is None:
+            continue
+        level = len(match.group("prefix"))
+        name = match.group("name")
+        if depth is None:
+            if name == "extensions/":
+                depth = level
+            continue
+        if level <= depth:
+            break
+        if level == depth + 4 and name.endswith("/"):
+            folders.append(name[:-1])
+    return None if depth is None else folders
+
+
 class TestSkillsCatalog(unittest.TestCase):
     def test_skill_docs_exist(self):
         self.assertTrue(
@@ -234,6 +263,51 @@ class TestAgentsRepoLayoutTree(unittest.TestCase):
                         f"AGENTS.md Repo Layout omits top-level '{name}'; "
                         "the tree describes a repository that does not exist"
                     )
+
+
+class TestTreeExtensionFolders(unittest.TestCase):
+    """Gate the ``extensions/`` subtree of both layout trees.
+
+    The top-level checks above only see ``extensions/`` itself, and the README
+    roster checks match anywhere in the document. Neither notices a tree that
+    leaves out an extension folder, or keeps one that was removed, which is how
+    AGENTS.md went on describing two extensions after a third shipped.
+    """
+
+    TREES = {
+        "README.md Repository Structure": structure_tree,
+        "AGENTS.md Repo Layout": agents_layout_tree,
+    }
+
+    def test_trees_list_exactly_the_extension_folders(self):
+        present = [p.name for p in extension_dirs()]
+        for label, read_tree in self.TREES.items():
+            with self.subTest(tree=label):
+                try:
+                    listed = tree_extension_folders(read_tree())
+                except ValueError as exc:
+                    self.fail(str(exc))
+                if listed is None:
+                    self.fail(f"{label} tree has no extensions/ entry")
+                for name in sorted(set(present) - set(listed)):
+                    self.fail(f"{label} tree omits extensions/{name}/")
+                for name in sorted(set(listed) - set(present)):
+                    self.fail(f"{label} tree lists extensions/{name}/, which does not exist")
+
+    def test_folder_parser_reads_only_direct_children(self):
+        tree = (
+            "repo/\n"
+            "├── extensions/\n"
+            "│   ├── one/       # comment\n"
+            "│   │   ├── nested/\n"
+            "│   │   └── metadata.json\n"
+            "│   └── two/\n"
+            "│       └── icons/\n"
+            "├── docs/\n"
+            "│   └── skills/\n"
+        )
+        self.assertEqual(tree_extension_folders(tree), ["one", "two"])
+        self.assertIsNone(tree_extension_folders("repo/\n├── docs/\n"))
 
 
 class TestExtensionRoster(unittest.TestCase):
