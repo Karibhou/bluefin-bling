@@ -238,7 +238,8 @@ one entry to the `scenarios` object plus the assertions for it.
 `tests/test_syncthing_toggle_behavior.py` covers authenticated API health and
 readiness, local-only folder defaults despite inherited peers, native migration
 and rollback ownership, preserved user edits/deleted presets, cancellation and
-newest-request precedence, metered pause and login intent, and pending invitation
+newest-request precedence, metered pause and login intent (including a request
+held across a simulated logout with `ctx.login`), and pending invitation
 identity/failure recovery. These are controller-level scenarios with stubbed
 Soup, subprocesses and files; they do not prove a real container or peer sync.
 `tests/test_syncthing_toggle_pending_shape.py` reuses the `pending` scenario with
@@ -259,8 +260,8 @@ Two rules keep these honest:
 `tests/test_syncthing_toggle_network_behavior.py` drives the same harness through
 its fail-safes: no usable `Gio.NetworkMonitor` (`networkMonitor: 'throws'` or
 `'absent'`), a metered probe that raises (`meteredProbeThrows`), repeated metered
-edges, and a `service-name` changed to a rejected value mid-session (the
-harness's mutable `ctx.serviceName`).
+edges, and a `service-name` changed to a rejected value mid-session, including
+across metered edges (the harness's mutable `ctx.serviceName`).
 
 ## Real GJS deployment-helper coverage
 

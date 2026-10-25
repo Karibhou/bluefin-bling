@@ -582,5 +582,72 @@ class SyncthingApiControlTests(unittest.TestCase):
         self.assertEqual(unlocked["launchedUrl"], "http://127.0.0.1:12345")
 
 
+@unittest.skipIf(NODE is None, "node is not installed")
+class MeteredRequestAcrossSessionsTests(unittest.TestCase):
+    """A metered link holding back "turn sharing on" must survive a logout (#92)."""
+
+    def test_a_held_request_starts_sharing_at_the_next_unmetered_login(self):
+        result = run_scenario("meteredLogin")
+        held, login = result["held"], result["login"]
+        self.assertFalse(held["running"])
+        self.assertFalse(held["autostart"])
+        self.assertTrue(held["resumeWhenUnmetered"])
+        self.assertTrue(login["running"])
+        self.assertTrue(login["checked"])
+        self.assertTrue(login["desiredOn"])
+        self.assertFalse(login["paused"])
+        self.assertTrue(login["provisioned"])
+        self.assertTrue(login["autostart"])
+        self.assertFalse(login["resumeWhenUnmetered"])
+        self.assertEqual(autostart_changes(login), [True])
+
+    def test_a_held_request_stays_paused_at_a_metered_login_until_unmetering(self):
+        result = run_scenario("meteredLogin", loginMetered=True)
+        held, login, after = result["held"], result["login"], result["after"]
+        self.assertFalse(login["running"])
+        self.assertFalse(login["checked"])
+        self.assertTrue(login["desiredOn"])
+        self.assertTrue(login["paused"])
+        self.assertEqual(login["subtitle"], "Paused on metered network")
+        self.assertTrue(login["resumeWhenUnmetered"])
+        self.assertEqual({c.get("verb") for c in login["commands"][len(held["commands"]):]}, {"is-active"})
+        self.assertTrue(after["running"])
+        self.assertTrue(after["checked"])
+        self.assertTrue(after["autostart"])
+        self.assertFalse(after["resumeWhenUnmetered"])
+        self.assertEqual(autostart_changes(after), [True])
+
+    def test_a_manual_off_forgets_the_held_request(self):
+        result = run_scenario("meteredLogin", manualOff=True)
+        held, login, after = result["held"], result["login"], result["after"]
+        self.assertFalse(held["resumeWhenUnmetered"])
+        self.assertFalse(login["running"])
+        self.assertFalse(login["desiredOn"])
+        self.assertFalse(after["running"])
+        self.assertFalse(after["autostart"])
+        self.assertNotIn(True, autostart_changes(after))
+
+    def test_start_stop_only_does_not_carry_a_held_request_into_the_next_session(self):
+        result = run_scenario("meteredLogin", startStopOnly=True)
+        held, login, after = result["held"], result["login"], result["after"]
+        self.assertFalse(held["resumeWhenUnmetered"])
+        self.assertFalse(login["running"])
+        self.assertFalse(login["desiredOn"])
+        self.assertFalse(after["running"])
+        self.assertEqual(autostart_changes(after), [])
+
+    def test_pausing_an_autostarted_unit_records_no_held_request(self):
+        result = run_scenario("meteredLogin", pausedRunning=True)
+        held, login = result["held"], result["login"]
+        self.assertFalse(held["running"])
+        self.assertTrue(held["autostart"])
+        self.assertFalse(held["resumeWhenUnmetered"])
+        self.assertTrue(login["running"])
+        self.assertTrue(login["checked"])
+        self.assertFalse(login["paused"])
+        self.assertEqual(login["notifications"], held["notifications"])
+        self.assertEqual(autostart_changes(login), [True])
+
+
 if __name__ == "__main__":
     unittest.main()

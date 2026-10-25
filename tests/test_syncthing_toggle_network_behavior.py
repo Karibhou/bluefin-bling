@@ -150,5 +150,24 @@ class ServiceRenamedInvalidTests(unittest.TestCase):
         self.assertEqual(verbs(restored)[-1], "is-active")
 
 
+@unittest.skipIf(NODE is None, "node is not installed")
+class MeteredEdgeWithRejectedNameTests(unittest.TestCase):
+    def setUp(self):
+        self.result = run_scenario("meteredWhileRenamedInvalid")
+
+    def test_metered_edge_records_no_pause_it_cannot_make(self):
+        on, metered = self.result["on"], self.result["metered"]
+        self.assertFalse(metered["paused"])
+        self.assertTrue(metered["running"])
+        self.assertEqual(metered["commands"], on["commands"])
+        self.assertEqual(metered["notifications"], on["notifications"])
+
+    def test_next_unmetered_edge_does_not_restart_the_running_unit(self):
+        on, unmetered = self.result["on"], self.result["unmetered"]
+        self.assertTrue(unmetered["running"])
+        self.assertEqual(unmetered["commands"], on["commands"])
+        self.assertEqual(titles(unmetered), titles(on))
+
+
 if __name__ == "__main__":
     unittest.main()
