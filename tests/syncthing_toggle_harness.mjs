@@ -348,15 +348,31 @@ async function build(options = {}) {
     const ctx = makeContext(options);
     // Mutable so a scenario can model the user editing service-name mid-session.
     ctx.serviceName = options.serviceName ?? 'syncthing.service';
+    // Keyed so extension-owned state outlives a simulated logout (ctx.login).
+    ctx.settings = {'start-stop-only': options.startStopOnly ?? false,
+        'resume-when-unmetered': options.resumeWhenUnmetered ?? false};
     globalThis.__syncthingStubs = ctx.stubs;
     const {ServiceIndicator} = await loadGnomeModule({path: SOURCE, stubsExpression: 'globalThis.__syncthingStubs'});
-    ctx.indicator = new ServiceIndicator({path: '/extension', uuid: 'syncthing-toggle@projectbluefin.io',
+    const extension = {path: '/extension', uuid: 'syncthing-toggle@projectbluefin.io',
         getSettings: () => ({
             get_string: key => key === 'service-name' ? ctx.serviceName : '',
             get_int: () => options.port ?? 8384,
-            get_boolean: () => options.startStopOnly ?? false,
-        }), openPreferences() { ctx.preferencesOpened = true; }});
+            get_boolean: key => ctx.settings[key] ?? false,
+            set_boolean: (key, value) => { ctx.settings[key] = value; },
+        }), openPreferences() { ctx.preferencesOpened = true; }};
+    ctx.indicator = new ServiceIndicator(extension);
     ctx.click = enabled => { ctx.indicator._toggle.checked = enabled; return ctx.indicator._toggle.emit('clicked'); };
+    // Log out and back in: the indicator is rebuilt, GSettings survive, and
+    // systemd starts the unit at login only if login startup is enabled.
+    ctx.login = async metered => {
+        ctx.indicator.destroy();
+        ctx.metered = metered;
+        ctx.unitRunning = ctx.autostart;
+        ctx.processKind = ctx.unitRunning ? ctx.managedPrepared ? 'container' : 'native' : null;
+        ctx.processCurrent = ctx.processKind === 'container';
+        ctx.indicator = new ServiceIndicator(extension);
+        await ctx.indicator.reconcile();
+    };
     return ctx;
 }
 
@@ -365,6 +381,7 @@ function snapshot(ctx) {
         checked: ctx.indicator._toggle.checked, subtitle: ctx.indicator._toggle.subtitle,
         webGuiSensitive: ctx.indicator._toggle.webGuiItem.sensitive,
         desiredOn: ctx.indicator._desiredOn, paused: ctx.indicator._pausedForMetered,
+        resumeWhenUnmetered: ctx.settings['resume-when-unmetered'],
         running: ctx.unitRunning, autostart: ctx.autostart, provisioned: ctx.provisioned,
         processCurrent: ctx.processCurrent, restartRequired: ctx.restartRequired,
         processKind: ctx.processKind, managedPrepared: ctx.managedPrepared,
@@ -477,6 +494,19 @@ const scenarios = {
         if (options.manualOff) await ctx.click(false);
         await ctx.setMetered(false);
         return {paused, after: snapshot(ctx)};
+    },
+    // Sharing requested, then a logout before the link unmeters (#92).
+    // pausedRunning pauses a running unit instead of refusing a metered click.
+    async meteredLogin(options) {
+        const ctx = await build({...options, metered: !options.pausedRunning});
+        await ctx.click(true);
+        if (options.pausedRunning) await ctx.setMetered(true);
+        if (options.manualOff) await ctx.click(false);
+        const held = snapshot(ctx);
+        await ctx.login(options.loginMetered ?? false);
+        const login = snapshot(ctx);
+        await ctx.setMetered(false);
+        return {held, login, after: snapshot(ctx)};
     },
     async meteredDuringStart(options) {
         const ctx = await build(options);
@@ -602,6 +632,17 @@ const scenarios = {
         ctx.serviceName = 'syncthing.service';
         await ctx.indicator._pollStatusAndPending(); const restored = snapshot(ctx);
         return {on, checked, polled, reconciled, restored};
+    },
+    // Metered edges while service-name is rejected: nothing can be paused, so
+    // nothing may be recorded for the next unmetered edge to "resume".
+    async meteredWhileRenamedInvalid(options) {
+        const ctx = await build(options);
+        await ctx.click(true); const on = snapshot(ctx);
+        ctx.serviceName = options.invalidName ?? 'syncthing.service; reboot';
+        await ctx.setMetered(true); const metered = snapshot(ctx);
+        ctx.serviceName = 'syncthing.service';
+        await ctx.setMetered(false); const unmetered = snapshot(ctx);
+        return {on, metered, unmetered};
     },
 };
 

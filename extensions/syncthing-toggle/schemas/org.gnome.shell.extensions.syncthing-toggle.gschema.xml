@@ -18,6 +18,11 @@
 			<summary>Sharing web interface and API port</summary>
 			<description>The loopback port used by the container web interface and API.</description>
 		</key>
+		<key name="resume-when-unmetered" type="b">
+			<default>false</default>
+			<summary>Start sharing on the next unmetered connection</summary>
+			<description>Internal state written by the extension, not a preference: true while a request to turn sharing on is held back by a metered connection, so it survives logging out.</description>
+		</key>
 		<key name="icon-name" type="s">
 			<default>''</default>
 			<summary>Custom Syncthing icon name</summary>

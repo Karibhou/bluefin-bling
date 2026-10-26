@@ -466,6 +466,7 @@ export var ServiceIndicator = GObject.registerClass(
 			this._desiredOn = enabled
 			this._pausedForMetered = enabled && this._isNetworkMetered()
 			this._persistOnResume = enabled
+			this._rememberHeldRequest()
 			return this._enqueueTransition({
 				active: enabled && !this._pausedForMetered,
 				persist: !this._pausedForMetered,
@@ -625,22 +626,47 @@ export var ServiceIndicator = GObject.registerClass(
 			if (this._destroyed || generation !== this._generation)
 				return
 			this._desiredOn = this._unitActive
+			if (!this._unitActive && this._validatedServiceName() &&
+				!this._settings.get_boolean('start-stop-only') &&
+				this._settings.get_boolean('resume-when-unmetered')) {
+				this._desiredOn = true
+				this._pausedForMetered = true
+				this._persistOnResume = true
+				this.updateStatus(false, _('Paused on metered network'))
+			}
+			this._rememberHeldRequest()
 			return this._onNetworkMeteredChanged()
+		}
+
+		// A request to turn sharing on that a metered link held back has not
+		// recorded the login choice yet, so it is kept in GSettings: otherwise a
+		// logout before the link unmeters reads it as "off" at the next login.
+		_rememberHeldRequest() {
+			const held = this._desiredOn && this._pausedForMetered && this._persistOnResume &&
+				!this._settings.get_boolean('start-stop-only')
+			if (this._settings.get_boolean('resume-when-unmetered') !== held)
+				this._settings.set_boolean('resume-when-unmetered', held)
 		}
 
 		_onNetworkMeteredChanged() {
 			if (this._destroyed)
+				return Promise.resolve()
+			// No transition can run against a rejected name; recording a pause
+			// here would make the next unmetered edge restart a running unit.
+			if (!this._validatedServiceName())
 				return Promise.resolve()
 			const metered = this._isNetworkMetered()
 			if (metered) {
 				if (!this._desiredOn || this._pausedForMetered)
 					return Promise.resolve()
 				this._pausedForMetered = true
+				this._rememberHeldRequest()
 				return this._enqueueTransition({ active: false, persist: false, paused: true })
 			}
 			if (!this._pausedForMetered || !this._desiredOn)
 				return Promise.resolve()
 			this._pausedForMetered = false
+			this._rememberHeldRequest()
 			return this._enqueueTransition({ active: true, persist: this._persistOnResume, paused: false })
 		}
 

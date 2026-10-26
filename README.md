@@ -83,7 +83,7 @@ Syncthing container. No separate panel icon or companion desktop app is needed.
 - **Explicit sharing:** Pair devices and approve folders in Syncthing's existing web UI. Enabling the service or unpausing a folder does not grant a peer access to Documents.
 - **Supported configuration:** The extension uses authenticated asynchronous REST requests, not daemon XML rewrites or a host Syncthing binary.
 - **Preserved settings:** Native-service migration keeps identity, database, existing folders and peer approvals. Later toggles preserve user edits and deleted presets.
-- **Metered networks:** Sharing pauses without erasing the user's login startup choice; a newer off request prevents automatic resume.
+- **Metered networks:** Sharing pauses without erasing the user's login startup choice; turning sharing on while metered is remembered across logouts and starts on the next unmetered connection; a newer off request prevents automatic resume.
 - **Simple controls:** Sharing Settings opens the built-in web UI; Start/Stop only leaves login startup unchanged.
 
 Requires `podman`, `gjs` with Soup 3, and the desktop's `xdg-user-dirs` configuration. The first on request prepares
