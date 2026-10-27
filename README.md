@@ -84,6 +84,7 @@ Syncthing container. No separate panel icon or companion desktop app is needed.
 - **Supported configuration:** The extension uses authenticated asynchronous REST requests, not daemon XML rewrites or a host Syncthing binary.
 - **Preserved settings:** Native-service migration keeps identity, database, existing folders and peer approvals. Later toggles preserve user edits and deleted presets.
 - **Metered networks:** Sharing pauses without erasing the user's login startup choice; turning sharing on while metered is remembered across logouts and starts on the next unmetered connection; a newer off request prevents automatic resume.
+- **Protected web UI:** The built-in web page is locked with the login name and a private random password on every start, so other local accounts and sandboxed apps cannot reach it. Sharing Settings copies that password to the clipboard before opening the page; a login the user set themselves is kept.
 - **Simple controls:** Sharing Settings opens the built-in web UI; Start/Stop only leaves login startup unchanged.
 
 Requires `podman`, `gjs` with Soup 3, and the desktop's `xdg-user-dirs` configuration. The first on request prepares

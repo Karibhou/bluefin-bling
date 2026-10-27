@@ -277,8 +277,10 @@ class SyncthingApiControlTests(unittest.TestCase):
         self.assertTrue(result["checked"])
         self.assertEqual(len(result["notifications"]), 1)
         self.assertTrue(result["notifications"][0]["active"])
+        # Two failed probes, one success, then the listener restart after the
+        # login change costs one more failure and success, then the final check.
         self.assertEqual(sum(request["path"] == "system/status"
-                             for request in result["apiRequests"]), 4)
+                             for request in result["apiRequests"]), 6)
 
     def test_readiness_timeout_rolls_back_without_persisting_or_announcing_success(self):
         result = run_scenario("initial", healthFailures=1000)
@@ -580,6 +582,114 @@ class SyncthingApiControlTests(unittest.TestCase):
         self.assertFalse(locked["settingsVisible"])
         self.assertTrue(unlocked["preferencesOpened"])
         self.assertEqual(unlocked["launchedUrl"], "http://127.0.0.1:12345")
+
+
+def gui_changes(result: dict) -> list[dict]:
+    return [request for request in result["apiRequests"]
+            if request["method"] == "PATCH" and request["path"] == "config/gui"]
+
+
+@unittest.skipIf(NODE is None, "node is not installed")
+class WebPageLoginTests(unittest.TestCase):
+    """The daemon's web page must not stay open to other local programs."""
+
+    def test_first_start_sets_a_login_before_any_folder_is_configured(self):
+        result = run_scenario("initial")
+        self.assertTrue(result["guiProtected"])
+        self.assertTrue(result["guiPasswordMatches"])
+        self.assertEqual(result["gui"]["user"], "testuser")
+        self.assertEqual(result["gui"]["authMode"], "static")
+        self.assertTrue(result["gui"]["password"].startswith("$2a$"))
+        changes = gui_changes(result)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["body"]["password"], "<redacted>")
+        paths = [(request["method"], request["path"]) for request in result["apiRequests"]]
+        self.assertLess(paths.index(("PATCH", "config/gui")), paths.index(("POST", "config/folders")))
+        self.assertTrue(result["authenticated"])
+        self.assertFalse(result["secretLeaked"])
+        self.assertTrue(result["provisioned"])
+
+    def test_listener_restart_after_the_login_change_is_awaited(self):
+        result = run_scenario("initial", authRestartChecks=5)
+        self.assertTrue(result["checked"])
+        self.assertTrue(result["provisioned"])
+        self.assertTrue(result["guiProtected"])
+        self.assertEqual(len(result["notifications"]), 1)
+        self.assertTrue(result["notifications"][0]["active"])
+
+    def test_a_login_the_user_already_set_is_left_alone(self):
+        result = run_scenario("initial", guiUser="owner", guiPassword="$2a$10$" + "u" * 53)
+        self.assertEqual(gui_changes(result), [])
+        self.assertEqual(result["gui"]["user"], "owner")
+        self.assertEqual(result["gui"]["password"], "$2a$10$" + "u" * 53)
+        self.assertTrue(result["provisioned"])
+
+    def test_a_user_without_a_password_keeps_the_name_and_gets_a_password(self):
+        result = run_scenario("initial", guiUser="owner")
+        self.assertEqual(len(gui_changes(result)), 1)
+        self.assertEqual(result["gui"]["user"], "owner")
+        self.assertTrue(result["guiProtected"])
+        self.assertTrue(result["guiPasswordMatches"])
+
+    def test_directory_logins_are_not_replaced_by_a_static_password(self):
+        result = run_scenario("initial", guiAuthMode="ldap")
+        self.assertEqual(gui_changes(result), [])
+        self.assertEqual(result["gui"]["authMode"], "ldap")
+        self.assertTrue(result["provisioned"])
+
+    def test_every_start_re_checks_the_login(self):
+        result = run_scenario("laterStart")
+        self.assertEqual(len(gui_changes(result)), 1)
+        self.assertEqual(sum(request["method"] == "GET" and request["path"] == "config/gui"
+                             for request in result["apiRequests"]), 2)
+
+    def test_login_api_failures_roll_back_without_sharing_or_leaking(self):
+        for errors in ({"config/gui": {"status": 200, "raw": "{}"}},
+                       {"GET:config/gui": {"status": 500}},
+                       {"PATCH:config/gui": {"status": 500}},
+                       {"PATCH:config/gui": {"status": 403}}):
+            with self.subTest(errors=errors):
+                result = run_scenario("initial", apiErrors=errors)
+                self.assertFalse(result["checked"])
+                self.assertFalse(result["running"])
+                self.assertFalse(result["provisioned"])
+                self.assertEqual(posted_folders(result), [])
+                self.assertFalse(result["secretLeaked"])
+                self.assertEqual(len(result["notifications"]), 1)
+                self.assertFalse(result["notifications"][0]["active"])
+
+    def test_a_credential_file_without_a_password_still_reports_status(self):
+        result = run_scenario("health", legacyEnv=True, provisioned=True)
+        self.assertTrue(result["checked"])
+        self.assertTrue(result["authenticated"])
+
+    def test_a_credential_file_without_a_password_cannot_start_an_open_daemon(self):
+        result = run_scenario("initial", legacyEnv=True)
+        self.assertFalse(result["checked"])
+        self.assertFalse(result["running"])
+        self.assertFalse(result["guiProtected"])
+        self.assertEqual(gui_changes(result), [])
+        self.assertEqual(posted_folders(result), [])
+
+    def test_sharing_settings_copies_the_password_and_opens_the_page(self):
+        result = run_scenario("sharingSettings", port=12345)
+        self.assertEqual(result["launchedUrl"], "http://127.0.0.1:12345")
+        self.assertTrue(result["clipboardHasPassword"])
+        self.assertEqual(len(result["notifications"]), 1)
+        self.assertFalse(result["secretLeaked"])
+
+    def test_sharing_settings_without_a_stored_password_just_opens_the_page(self):
+        result = run_scenario("sharingSettings", legacyEnv=True)
+        self.assertEqual(result["launchedUrl"], "http://127.0.0.1:8384")
+        self.assertFalse(result["clipboardHasPassword"])
+        self.assertEqual(result["notifications"], [])
+
+    def test_a_clipboard_failure_still_opens_the_page_without_leaking(self):
+        result = run_scenario("sharingSettings", clipboardThrows=True)
+        self.assertEqual(result["launchedUrl"], "http://127.0.0.1:8384")
+        self.assertFalse(result["clipboardHasPassword"])
+        self.assertEqual(result["notifications"], [])
+        self.assertFalse(result["secretLeaked"])
 
 
 @unittest.skipIf(NODE is None, "node is not installed")

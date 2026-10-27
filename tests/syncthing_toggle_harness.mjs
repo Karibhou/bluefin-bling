@@ -8,6 +8,9 @@ import {loadGnomeModule} from './gnome_module_loader.mjs';
 const SOURCE = join(dirname(fileURLToPath(import.meta.url)), '..', 'extensions',
     'syncthing-toggle', 'toggle.js');
 const SECRET = 'private-test-api-key';
+const GUI_PASSWORD = 'private-test-gui-password';
+// What Syncthing stores after hashing a plaintext password handed to its config API.
+const HASHED = '$2a$10$' + 'h'.repeat(53);
 const clone = value => JSON.parse(JSON.stringify(value));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
@@ -52,6 +55,12 @@ function makeContext(options) {
         defaults: {type: 'sendreceive', fsWatcherEnabled: true, rescanIntervalS: 3600,
             devices: [{deviceID: 'TEMPLATE-PEER'}, {deviceID: 'SECOND-TEMPLATE-PEER'}]},
         provisioned: options.provisioned ?? false,
+        // The daemon's GUI section: unprotected until user and password are set.
+        gui: {enabled: true, address: '127.0.0.1:8384', user: options.guiUser ?? '',
+            password: options.guiPassword ?? '', authMode: options.guiAuthMode ?? 'static',
+            apiKey: SECRET, theme: 'default'},
+        // The API listener restarts itself after any GUI change; requests fail until it is back.
+        listenerRestarting: 0,
         autostart: options.autostart ?? false,
         unitRunning: options.running ?? false,
         restartRequired: options.restartRequired ?? options.legacy ?? false,
@@ -210,7 +219,9 @@ function makeContext(options) {
     const responseFor = message => {
         const path = new URL(message.url).pathname.replace(/^\/rest\//, '');
         const key = message.method + ':' + path;
-        ctx.apiRequests.push({method: message.method, path, ...(message.body ? {body: clone(message.body)} : {})});
+        const recorded = message.body ? clone(message.body) : undefined;
+        if (recorded && typeof recorded.password === 'string') recorded.password = '<redacted>';
+        ctx.apiRequests.push({method: message.method, path, ...(recorded ? {body: recorded} : {})});
         const authenticated = message.headers.get('X-API-Key') === SECRET;
         ctx.authentication.push(authenticated);
         if (!authenticated) { message.status = 401; return {text: SECRET}; }
@@ -226,13 +237,29 @@ function makeContext(options) {
             throw new Error('Container is starting');
         }
         if (!ctx.unitRunning) throw new Error('Connection refused');
+        if (ctx.listenerRestarting > 0) {
+            ctx.listenerRestarting -= 1;
+            throw new Error('Connection refused');
+        }
         message.status = 200;
         if (message.method === 'GET') {
             if (path === 'system/status') return {text: JSON.stringify({myID: ctx.identity})};
+            if (path === 'config/gui') return {text: JSON.stringify(ctx.gui)};
             if (path === 'config/folders') return {text: JSON.stringify(ctx.configured)};
             if (path === 'config/defaults/folder') return {text: JSON.stringify(ctx.defaults)};
             if (path === 'cluster/pending/devices') return {text: JSON.stringify(ctx.pendingDevices)};
             if (path === 'cluster/pending/folders') return {text: JSON.stringify(ctx.pendingFolders)};
+        }
+        if (message.method === 'PATCH' && path === 'config/gui') {
+            const before = JSON.stringify(ctx.gui);
+            ctx.gui = {...ctx.gui, ...clone(message.body)};
+            if (typeof message.body.password === 'string' && message.body.password !== '' &&
+                !/^\$2[aby]\$/.test(message.body.password)) {
+                ctx.gui.password = HASHED;
+                ctx.gui.plaintext = message.body.password;
+            }
+            if (JSON.stringify(ctx.gui) !== before) ctx.listenerRestarting = options.authRestartChecks ?? 1;
+            return {text: ''};
         }
         if (message.method === 'POST' && path === 'config/folders') {
             const index = ctx.configured.findIndex(folder => folder.id === message.body.id);
@@ -283,6 +310,7 @@ function makeContext(options) {
     const GLib = {
         PRIORITY_DEFAULT: 0, SOURCE_REMOVE: false, SOURCE_CONTINUE: true,
         get_user_state_dir: () => '/home/test/.local/state',
+        get_user_name: () => 'testuser',
         get_monotonic_time: () => ctx.clock,
         Bytes: {new: data => ({get_data: () => data})},
         timeout_add: (_priority, milliseconds, callback) => addTimer(milliseconds, callback),
@@ -303,8 +331,10 @@ function makeContext(options) {
                     ctx.schedule('file:credentials', cancellable, result => callback(this, result), () => {
                         if (options.envUnreadable || !ctx.managedPrepared || !path.endsWith('/container.env'))
                             throw new Error('File unavailable');
-                        return {text: options.invalidCredentials ? 'STGUIAPIKEY=\nSTGUIADDRESS=other-host:8384\n' :
-                            `STGUIAPIKEY=${SECRET}\nSTGUIADDRESS=http://127.0.0.1:${options.port ?? 8384}\n`};
+                        if (options.invalidCredentials) return {text: 'STGUIAPIKEY=\nSTGUIADDRESS=other-host:8384\n'};
+                        // legacyEnv models a credential file from before the GUI password existed.
+                        return {text: `STGUIAPIKEY=${SECRET}\nSTGUIADDRESS=http://127.0.0.1:${options.port ?? 8384}\n` +
+                            (options.legacyEnv ? '' : `BLING_GUI_PASSWORD=${GUI_PASSWORD}\n`)};
                     });
                 },
                 load_contents_finish(result) { if (result.error) throw result.error; return [true, new TextEncoder().encode(result.text)]; },
@@ -327,6 +357,12 @@ function makeContext(options) {
             app_info_launch_default_for_uri(url) { ctx.launchedUrl = url; },
         },
         GLib, Soup: {Session, Message: {new: (method, url) => new Message(method, url)}},
+        St: {ClipboardType: {CLIPBOARD: 'clipboard'}, Clipboard: {get_default: () => ({
+            set_text(type, text) {
+                if (options.clipboardThrows) throw new Error('No clipboard');
+                ctx.clipboard = {type, text};
+            },
+        })}},
         GObject: {registerClass: value => value},
         QuickMenuToggle: Toggle,
         SystemIndicator: class {
@@ -397,7 +433,11 @@ function snapshot(ctx) {
         networkHandlers: ctx.networkHandlers.size, clickHandlers: ctx.indicator._toggle.handlers.size,
         abortCount: ctx.abortCount, destroyCount: ctx.indicator.destroyCount,
         panelIconCount: ctx.indicator.panelIconCount, quickSettingsCount: ctx.indicator.quickSettingsItems.length,
-        secretLeaked: JSON.stringify([ctx.notifications, ctx.logs, ctx.commands, ctx.apiRequests]).includes(SECRET),
+        gui: clone(ctx.gui), guiProtected: Boolean(ctx.gui.user && ctx.gui.password),
+        guiPasswordMatches: ctx.gui.plaintext === GUI_PASSWORD,
+        clipboardHasPassword: ctx.clipboard?.text === GUI_PASSWORD, launchedUrl: ctx.launchedUrl ?? null,
+        secretLeaked: [SECRET, GUI_PASSWORD].some(secret =>
+            JSON.stringify([ctx.notifications, ctx.logs, ctx.commands, ctx.apiRequests]).includes(secret)),
     };
 }
 
@@ -583,6 +623,14 @@ const scenarios = {
         const before = snapshot(ctx);
         await ctx.setMetered(false);
         return {before, after: snapshot(ctx)};
+    },
+    // "Sharing Settings" on a running daemon: the page opens and the password
+    // is on the clipboard, except when the credential file predates it.
+    async sharingSettings(options) {
+        const ctx = await build({...options, running: true, provisioned: true});
+        await ctx.indicator.checkStatus();
+        ctx.indicator._toggle.webGuiItem.callback();
+        return snapshot(ctx);
     },
     async menu(options) {
         const ctx = await build(options);
