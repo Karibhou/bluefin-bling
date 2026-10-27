@@ -132,9 +132,16 @@ class SyncthingServiceBehavior(unittest.TestCase):
             {"id": "music", "label": "Music", "path": str(music), "paused": True},
         ])
         credentials = Path(response["envFile"]).read_text()
-        key = credentials.splitlines()[0].split("=", 1)[1]
+        lines = credentials.splitlines()
+        self.assertEqual([line.split("=", 1)[0] for line in lines],
+                         ["STGUIAPIKEY", "STGUIADDRESS", "BLING_GUI_PASSWORD"])
+        key = lines[0].split("=", 1)[1]
+        password = lines[2].split("=", 1)[1]
         self.assertRegex(key, r"^[0-9a-f]{64}$")
+        self.assertRegex(password, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(key, password)
         self.assertNotIn(key, json.dumps(response))
+        self.assertNotIn(password, json.dumps(response))
         self.invoke()
         self.assertEqual(Path(response["envFile"]).read_text(), credentials)
         for name, data in identity.items():
@@ -170,6 +177,29 @@ class SyncthingServiceBehavior(unittest.TestCase):
         self.assertFalse(self.metadata()["autostart"])
         self.assertEqual(self.metadata()["extraPaths"], [str(custom)])
         self.assertEqual(self.metadata()["userChoices"], metadata["userChoices"])
+
+    def test_credential_file_without_a_password_gains_one_and_keeps_its_key(self):
+        self.state_dir.mkdir(mode=0o700)
+        env_file = self.state_dir / "container.env"
+        key = "ab" * 32
+        env_file.write_text(f"STGUIAPIKEY={key}\nSTGUIADDRESS=http://127.0.0.1:18384\n")
+        env_file.chmod(0o600)
+        response = self.invoke()
+        self.assertTrue(response["restartRequired"])
+        lines = env_file.read_text().splitlines()
+        self.assertEqual(lines[0], f"STGUIAPIKEY={key}")
+        self.assertEqual(lines[1], "STGUIADDRESS=http://127.0.0.1:18384")
+        self.assertRegex(lines[2], r"^BLING_GUI_PASSWORD=[0-9a-f]{64}$")
+        self.assertEqual(stat.S_IMODE(env_file.stat().st_mode), 0o600)
+        self.invoke()
+        self.assertEqual(env_file.read_text().splitlines(), lines)
+        for bad in (f"STGUIAPIKEY={key}\nSTGUIADDRESS=http://127.0.0.1:18384\nBLING_GUI_PASSWORD=short\n",
+                    f"STGUIAPIKEY={key}\nSTGUIADDRESS=http://127.0.0.1:18384\nOTHER={'cd' * 32}\n",
+                    f"STGUIAPIKEY={key}\nBLING_GUI_PASSWORD={'cd' * 32}\n"):
+            env_file.write_text(bad)
+            result = self.invoke(expected_success=False)
+            self.assertNotIn(key, result.stderr)
+            self.assertEqual(env_file.read_text(), bad)
 
     def test_restart_changes_remain_pending_until_successful_provisioning(self):
         first = self.invoke()
@@ -449,8 +479,9 @@ class SyncthingServiceBehavior(unittest.TestCase):
             security_options = [re.split("[:=]", value, maxsplit=1) for value in options("--security-opt")]
             self.assertIn(["label", "disable"], security_options)
             self.assertNotIn(f"{self.home}:{self.home}:rw", volumes)
-            key = Path(response["envFile"]).read_text().splitlines()[0].split("=", 1)[1]
-            self.assertNotIn(key, result.stdout)
+            for line in Path(response["envFile"]).read_text().splitlines():
+                if not line.startswith("STGUIADDRESS="):
+                    self.assertNotIn(line.split("=", 1)[1], result.stdout)
             self.assertEqual("WantedBy=default.target" in result.stdout, enabled)
 
 

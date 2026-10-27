@@ -221,15 +221,21 @@ function randomKey() {
     return chunks.map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function apiKey(contents) {
+// The GUI password is a second OS-random secret the toggle hands to the daemon
+// once over the API, so the web page is never left open to other local programs.
+// Files written before it existed have two lines; keep their key and add one.
+function credentials(contents) {
     if (contents === null)
-        return randomKey();
+        return {key: randomKey(), guiPassword: randomKey()};
     const lines = contents.trimEnd().split('\n');
     const key = lines.find(line => line.startsWith('STGUIAPIKEY='))?.slice(12);
-    if (lines.length !== 2 || !/^[a-f0-9]{64}$/.test(key ?? '') ||
-        !lines.some(line => /^STGUIADDRESS=(?:http:\/\/)?127\.0\.0\.1:\d+$/.test(line)))
+    const guiPassword = lines.find(line => line.startsWith('BLING_GUI_PASSWORD='))?.slice(19);
+    if (![2, 3].includes(lines.length) || !/^[a-f0-9]{64}$/.test(key ?? '') ||
+        !lines.some(line => /^STGUIADDRESS=(?:http:\/\/)?127\.0\.0\.1:\d+$/.test(line)) ||
+        (lines.length === 3) !== (guiPassword !== undefined) ||
+        (guiPassword !== undefined && !/^[a-f0-9]{64}$/.test(guiPassword)))
         throw new Error('Existing credential file is not a managed environment file');
-    return key;
+    return {key, guiPassword: guiPassword ?? randomKey()};
 }
 
 function quote(value) {
@@ -393,7 +399,7 @@ function prepare(request) {
             mounts.set(`extra:${target.path}`, target.path);
     }
     const previousEnv = readOwned(envFile);
-    const key = apiKey(previousEnv);
+    const {key, guiPassword} = credentials(previousEnv);
     if (request.action === 'autostart')
         metadata = {...metadata, autostart: request.enabled};
     if (request.action === 'provisioned')
@@ -410,7 +416,8 @@ function prepare(request) {
     };
     for (const [name, value] of Object.entries(replacements))
         template = template.replaceAll(`@${name}@`, () => value);
-    const environment = `STGUIAPIKEY=${key}\nSTGUIADDRESS=http://127.0.0.1:${request.port}\n`;
+    const environment = `STGUIAPIKEY=${key}\nSTGUIADDRESS=http://127.0.0.1:${request.port}\n` +
+        `BLING_GUI_PASSWORD=${guiPassword}\n`;
     const restartRequired = request.action !== 'provisioned' &&
         (metadata.restartRequired === true || nativeActive ||
         previousQuadlet !== template || previousEnv !== environment);

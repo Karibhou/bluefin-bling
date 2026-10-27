@@ -2,6 +2,7 @@ import Gio from 'gi://Gio'
 import GLib from 'gi://GLib'
 import GObject from 'gi://GObject'
 import Soup from 'gi://Soup?version=3.0'
+import St from 'gi://St'
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js'
 import {
 	QuickMenuToggle,
@@ -37,7 +38,7 @@ function loadContentsAsync(file, cancellable) {
 
 const ServiceToggle = GObject.registerClass(
 	class ServiceToggle extends QuickMenuToggle {
-		constructor(extensionObject, syncthingIcon) {
+		constructor(extensionObject, syncthingIcon, openSharingSettings) {
 			super({
 				title: _('Sync Folder'),
 				gicon: syncthingIcon,
@@ -47,14 +48,7 @@ const ServiceToggle = GObject.registerClass(
 			this.menu.setHeader(syncthingIcon, _('Sync Folder'))
 			this._settings = extensionObject.getSettings()
 			const itemsSection = new PopupMenu.PopupMenuSection()
-			this.webGuiItem = itemsSection.addAction(_('Sharing Settings'), () => {
-				const url = 'http://127.0.0.1:' + this._settings.get_int('port')
-				try {
-					Gio.app_info_launch_default_for_uri(url, null)
-				} catch (error) {
-					logError(error, 'Failed to open URL')
-				}
-			})
+			this.webGuiItem = itemsSection.addAction(_('Sharing Settings'), openSharingSettings)
 			this.webGuiItem.setSensitive(false)
 			this.menu.addMenuItem(itemsSection)
 			this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem())
@@ -96,7 +90,8 @@ export var ServiceIndicator = GObject.registerClass(
 
 			const iconName = this._settings.get_string('icon-name').trim() ||
 				extensionObject.path + '/icons/syncthing-symbolic.svg'
-			this._toggle = new ServiceToggle(extensionObject, Gio.icon_new_for_string(iconName))
+			this._toggle = new ServiceToggle(extensionObject, Gio.icon_new_for_string(iconName),
+				() => this._openSharingSettings())
 			this.quickSettingsItems.push(this._toggle)
 			this._clickedSignalId = this._toggle.connect('clicked', () =>
 				this._requestSharing(this._toggle.checked)
@@ -268,10 +263,61 @@ export var ServiceIndicator = GObject.registerClass(
 					values[line.slice(0, separator)] = line.slice(separator + 1).trim()
 			}
 			const key = values.STGUIAPIKEY
+			// Absent only in a credential file written before the password existed;
+			// the helper adds one before the next start, so polling must not fail here.
+			const guiPassword = values.BLING_GUI_PASSWORD || null
 			const port = this._settings.get_int('port')
-			if (!key || /\s/.test(key) || !Number.isInteger(port) || port < 1 || port > 65535)
+			if (!key || /\s/.test(key) || (guiPassword !== null && /\s/.test(guiPassword)) ||
+				!Number.isInteger(port) || port < 1 || port > 65535)
 				throw new Error(_('The private file sharing credentials are invalid.'))
-			this._credentials = { key, url: 'http://127.0.0.1:' + port }
+			this._credentials = { key, guiPassword, url: 'http://127.0.0.1:' + port }
+		}
+
+		// Syncthing protects its web page only once a user and password are set;
+		// without them any local program that can reach loopback gets the CSRF
+		// cookie and full REST access. The toggle's own calls use X-API-Key, which
+		// bypasses that login, so turning it on does not affect them. Returns
+		// whether the daemon was changed (its API listener then restarts itself).
+		async _ensureGuiAuth(generation, cancellable) {
+			const gui = await this._api('GET', 'config/gui', cancellable)
+			this._assertCurrent(generation, cancellable)
+			if (!isObject(gui) || typeof gui.user !== 'string' || typeof gui.password !== 'string' ||
+				(gui.authMode !== undefined && typeof gui.authMode !== 'string'))
+				throw new Error(_('The local file sharing API returned invalid login settings.'))
+			if (gui.user && gui.password)
+				return false
+			// Another directory (LDAP) already answers for logins; a static password would be ignored.
+			if (gui.authMode && gui.authMode !== 'static')
+				return false
+			if (!this._credentials?.guiPassword)
+				throw new Error(_('The private file sharing credentials are invalid.'))
+			// PATCH merges into the current GUI settings; the daemon stores a bcrypt hash.
+			await this._api('PATCH', 'config/gui', cancellable, {
+				authMode: 'static',
+				user: gui.user || GLib.get_user_name(),
+				password: this._credentials.guiPassword,
+			})
+			this._assertCurrent(generation, cancellable)
+			return true
+		}
+
+		_openSharingSettings() {
+			const url = 'http://127.0.0.1:' + this._settings.get_int('port')
+			const password = this._credentials?.guiPassword
+			if (password) {
+				try {
+					St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, password)
+					Main.notify(_('Sync Folder Sharing Settings'),
+						_('Sign in with your login name. The password was copied to the clipboard.'))
+				} catch (error) {
+					logError(error, 'Failed to copy the sharing password')
+				}
+			}
+			try {
+				Gio.app_info_launch_default_for_uri(url, null)
+			} catch (error) {
+				logError(error, 'Failed to open URL')
+			}
 		}
 
 		async _api(method, path, cancellable, body = undefined) {
@@ -538,7 +584,13 @@ export var ServiceIndicator = GObject.registerClass(
 					await this._runSystemctl(nativeStartAttempted || (previouslyRunning && prepared.restartRequired) ? 'restart' : 'start',
 						serviceName, cancellable)
 					this._assertCurrent(generation, cancellable)
-					const status = await this._waitUntilReady(serviceName, generation, cancellable)
+					let status = await this._waitUntilReady(serviceName, generation, cancellable)
+					this._assertCurrent(generation, cancellable)
+					// Lock the web page before any folder is configured on it.
+					if (await this._ensureGuiAuth(generation, cancellable)) {
+						this._assertCurrent(generation, cancellable)
+						status = await this._waitUntilReady(serviceName, generation, cancellable)
+					}
 					this._assertCurrent(generation, cancellable)
 					await this._provision(prepared, status, generation, cancellable)
 					this._assertCurrent(generation, cancellable)
